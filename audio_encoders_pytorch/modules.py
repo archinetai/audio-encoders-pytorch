@@ -614,15 +614,15 @@ Discriminators
 
 
 class Discriminator1d(nn.Module):
-    def __init__(self, use_scores: Optional[Sequence[bool]] = None, **kwargs):
+    def __init__(self, use_loss: Optional[Sequence[bool]] = None, **kwargs):
         super().__init__()
         self.discriminator = Encoder1d(**kwargs)
         num_layers = self.discriminator.num_layers
-        # By default we activate discrimination score extraction on all layers
-        self.use_scores = default(use_scores, [True] * num_layers)
+        # By default we activate discrimination loss extraction on all layers
+        self.use_loss = default(use_loss, [True] * num_layers)
         # Check correct length
-        msg = f"use_scores length must match the number of layers ({num_layers})"
-        assert len(self.use_scores) == num_layers, msg
+        msg = f"use_loss length must match the number of layers ({num_layers})"
+        assert len(self.use_loss) == num_layers, msg
 
     def forward(
         self, true: Tensor, fake: Tensor, with_info: bool = False
@@ -637,8 +637,8 @@ class Discriminator1d(nn.Module):
 
         loss_gs, loss_ds, scores_true, scores_fake = [], [], [], []
 
-        for use_score, x_true, x_fake in zip(self.use_scores, xs_true, xs_fake):
-            if use_score:
+        for use_loss, x_true, x_fake in zip(self.use_loss, xs_true, xs_fake):
+            if use_loss:
                 # Half the channels are used for scores, the other for features
                 score_true, feat_true = x_true.chunk(chunks=2, dim=1)
                 score_fake, feat_fake = x_fake.chunk(chunks=2, dim=1)
