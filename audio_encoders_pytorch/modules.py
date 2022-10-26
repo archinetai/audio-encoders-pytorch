@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from einops import rearrange, reduce
 from torch import Tensor
 
@@ -255,6 +256,7 @@ class Encoder1d(nn.Module):
     ):
         super().__init__()
         num_layers = len(multipliers) - 1
+        self.num_layers = num_layers
         assert len(factors) == num_layers and len(num_blocks) == num_layers
 
         self.to_in = Patcher(
@@ -604,3 +606,54 @@ class NoiserBottleneck(Bottleneck):
             x = torch.randn_like(x) * self.sigma + x
         info: Dict = dict()
         return (x, info) if with_info else x
+
+
+"""
+Discriminators
+"""
+
+
+class Discriminator1d(nn.Module):
+    def __init__(self, use_scores: Optional[Sequence[bool]] = None, **kwargs):
+        super().__init__()
+        self.discriminator = Encoder1d(**kwargs)
+        num_layers = self.discriminator.num_layers
+        # By default we activate discrimination score extraction on all layers
+        self.use_scores = default(use_scores, [True] * num_layers)
+        # Check correct length
+        msg = f"use_scores length must match the number of layers ({num_layers})"
+        assert len(self.use_scores) == num_layers, msg
+
+    def forward(
+        self, true: Tensor, fake: Tensor, with_info: bool = False
+    ) -> Union[Tuple[Tensor, Tensor], Tuple[Tensor, Tensor, Dict]]:
+        # Get discriminator outputs for true/fake scores
+        _, info_true = self.discriminator(true, with_info=True)
+        _, info_fake = self.discriminator(fake, with_info=True)
+
+        # Get all intermediate layer features (ignore input)
+        xs_true = info_true["xs"][1:]
+        xs_fake = info_fake["xs"][1:]
+
+        loss_gs, loss_ds, scores_true, scores_fake = [], [], [], []
+
+        for use_score, x_true, x_fake in zip(self.use_scores, xs_true, xs_fake):
+            if use_score:
+                # Half the channels are used for scores, the other for features
+                score_true, feat_true = x_true.chunk(chunks=2, dim=1)
+                score_fake, feat_fake = x_fake.chunk(chunks=2, dim=1)
+                # Generator must match features with true sample and fool discriminator
+                loss_gs += [F.l1_loss(feat_true, feat_fake) - score_fake.mean()]
+                # Discriminator must give high score to true samples, low to fake
+                loss_ds += [((1 - score_true).relu() - (1 + score_fake).relu()).mean()]
+                # Save scores
+                scores_true += [score_true.mean()]
+                scores_fake += [score_fake.mean()]
+
+        # Average all generator/discriminator losses over all layers
+        loss_g = torch.stack(loss_gs).mean()
+        loss_d = torch.stack(loss_ds).mean()
+
+        info = dict(scores_true=scores_true, scores_fake=scores_fake)
+
+        return (loss_g, loss_d, info) if with_info else (loss_g, loss_d)

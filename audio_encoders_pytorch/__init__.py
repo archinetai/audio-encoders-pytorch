@@ -1,11 +1,12 @@
 from .modules import (
+    STFT,
     AutoEncoder1d,
-    Decoder1d,
-    Encoder1d,
     Bottleneck,
-    STFT, 
+    Decoder1d,
+    Discriminator1d,
+    Encoder1d,
+    NoiserBottleneck,
     STFTAutoEncoder1d,
-    VariationalBottleneck,
     TanhBottleneck,
-    NoiserBottleneck
+    VariationalBottleneck,
 )
