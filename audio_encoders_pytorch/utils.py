@@ -1,6 +1,5 @@
-from functools import reduce
 from inspect import isfunction
-from typing import Callable, Dict, List, Optional, Sequence, Tuple, TypeVar, Union
+from typing import Callable, Dict, List, Optional, Sequence, TypeVar, Union
 
 from typing_extensions import TypeGuard
 
@@ -25,27 +24,9 @@ def to_list(val: Union[T, Sequence[T]]) -> List[T]:
     return [val]  # type: ignore
 
 
-def prod(vals: Sequence[int]) -> int:
-    return reduce(lambda x, y: x * y, vals)
-
-
 """
 Kwargs Utils
 """
-
-
-def group_dict_by_prefix(prefix: str, d: Dict) -> Tuple[Dict, Dict]:
-    return_dicts: Tuple[Dict, Dict] = ({}, {})
-    for key in d.keys():
-        no_prefix = int(not key.startswith(prefix))
-        return_dicts[no_prefix][key] = d[key]
-    return return_dicts
-
-
-def groupby_kwargs_prefix(prefix: str, d: Dict) -> Tuple[Dict, Dict]:
-    kwargs_with_prefix, kwargs = group_dict_by_prefix(prefix, d)
-    kwargs_no_prefix = {k[len(prefix) :]: v for k, v in kwargs_with_prefix.items()}
-    return kwargs_no_prefix, kwargs
 
 
 def prefix_dict(prefix: str, d: Dict) -> Dict:
