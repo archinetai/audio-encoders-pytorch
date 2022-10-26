@@ -39,7 +39,7 @@ discriminator = Discriminator1d(
     multipliers=[1, 1, 2, 2],       # Channel multiplier between layers (i.e. channels * multiplier[i] -> channels * multiplier[i+1])
     factors=[8, 8, 8],              # Downsampling factor per layer
     num_blocks=[2, 2, 2],           # Number of resnet blocks per layer
-    use_scores=[True, True, True]   # Whether to use this layer as GAN loss
+    use_loss=[True, True, True]     # Whether to use this layer as GAN loss
 )
 
 wave_true = torch.randn(1, 2, 2**18)
