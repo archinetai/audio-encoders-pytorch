@@ -501,9 +501,9 @@ class STFTAutoEncoder1d(AutoEncoder1d):
         self,
         in_channels: int,
         length: int,
-        num_fft: int = 1024,
+        num_fft: int = 1023,
         hop_length: int = 256,
-        window_length: int = 1024,
+        window_length: int = 1023,
         **kwargs,
     ):
         self.frequency_channels = num_fft // 2 + 1
@@ -538,7 +538,7 @@ class STFTAutoEncoder1d(AutoEncoder1d):
         log_magnitude, phase = stft.chunk(chunks=2, dim=1)
         magnitude = torch.exp(log_magnitude)
         wave = self.stft.decode(magnitude, phase)
-        info = dict(magnitude=magnitude, phase=phase)
+        info = dict(log_magnitude=log_magnitude, phase=phase)
         return (wave, info) if with_info else wave
 
 
