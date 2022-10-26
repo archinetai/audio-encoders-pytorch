@@ -645,7 +645,7 @@ class Discriminator1d(nn.Module):
                 # Generator must match features with true sample and fool discriminator
                 loss_gs += [F.l1_loss(feat_true, feat_fake) - score_fake.mean()]
                 # Discriminator must give high score to true samples, low to fake
-                loss_ds += [((1 - score_true).relu() - (1 + score_fake).relu()).mean()]
+                loss_ds += [((1 - score_true).relu() + (1 + score_fake).relu()).mean()]
                 # Save scores
                 scores_true += [score_true.mean()]
                 scores_fake += [score_fake.mean()]
