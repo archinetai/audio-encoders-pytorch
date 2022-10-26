@@ -1,5 +1,3 @@
-import math
-from math import pi
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import torch
@@ -7,11 +5,12 @@ import torch.nn as nn
 from einops import rearrange, reduce
 from torch import Tensor
 
-from .utils import default, exists, to_list, prefix_dict
+from .utils import default, exists, prefix_dict, to_list
 
 """
-Convolutional Modules 
+Convolutional Modules
 """
+
 
 def Conv1d(*args, **kwargs) -> nn.Module:
     return nn.Conv1d(*args, **kwargs)
@@ -132,12 +131,7 @@ class ResnetBlock1d(nn.Module):
 
 
 class Patcher(nn.Module):
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        patch_size: int
-    ):
+    def __init__(self, in_channels: int, out_channels: int, patch_size: int):
         super().__init__()
         assert_message = f"out_channels must be divisible by patch_size ({patch_size})"
         assert out_channels % patch_size == 0, assert_message
@@ -146,7 +140,7 @@ class Patcher(nn.Module):
         self.block = ResnetBlock1d(
             in_channels=in_channels,
             out_channels=out_channels // patch_size,
-            num_groups=min(patch_size, in_channels)
+            num_groups=min(patch_size, in_channels),
         )
 
     def forward(self, x: Tensor) -> Tensor:
@@ -156,12 +150,7 @@ class Patcher(nn.Module):
 
 
 class Unpatcher(nn.Module):
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        patch_size: int
-    ):
+    def __init__(self, in_channels: int, out_channels: int, patch_size: int):
         super().__init__()
         assert_message = f"in_channels must be divisible by patch_size ({patch_size})"
         assert in_channels % patch_size == 0, assert_message
@@ -170,7 +159,7 @@ class Unpatcher(nn.Module):
         self.block = ResnetBlock1d(
             in_channels=in_channels // patch_size,
             out_channels=out_channels,
-            num_groups=min(patch_size, out_channels)
+            num_groups=min(patch_size, out_channels),
         )
 
     def forward(self, x: Tensor) -> Tensor:
@@ -187,14 +176,12 @@ class DownsampleBlock1d(nn.Module):
         *,
         factor: int,
         num_groups: int,
-        num_layers: int
+        num_layers: int,
     ):
         super().__init__()
 
         self.downsample = Downsample1d(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            factor=factor
+            in_channels=in_channels, out_channels=out_channels, factor=factor
         )
 
         self.blocks = nn.ModuleList(
@@ -202,7 +189,7 @@ class DownsampleBlock1d(nn.Module):
                 ResnetBlock1d(
                     in_channels=out_channels,
                     out_channels=out_channels,
-                    num_groups=num_groups
+                    num_groups=num_groups,
                 )
                 for i in range(num_layers)
             ]
@@ -223,7 +210,7 @@ class UpsampleBlock1d(nn.Module):
         *,
         factor: int,
         num_layers: int,
-        num_groups: int
+        num_groups: int,
     ):
         super().__init__()
 
@@ -232,18 +219,15 @@ class UpsampleBlock1d(nn.Module):
                 ResnetBlock1d(
                     in_channels=in_channels,
                     out_channels=in_channels,
-                    num_groups=num_groups
+                    num_groups=num_groups,
                 )
                 for _ in range(num_layers)
             ]
         )
 
         self.upsample = Upsample1d(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            factor=factor
+            in_channels=in_channels, out_channels=out_channels, factor=factor
         )
-
 
     def forward(self, x: Tensor) -> Tensor:
         for block in self.blocks:
@@ -265,8 +249,8 @@ class Encoder1d(nn.Module):
         multipliers: Sequence[int],
         factors: Sequence[int],
         num_blocks: Sequence[int],
-        patch_size: int = 1, 
-        resnet_groups: int = 8, 
+        patch_size: int = 1,
+        resnet_groups: int = 8,
         out_channels: Optional[int] = None,
     ):
         super().__init__()
@@ -276,7 +260,7 @@ class Encoder1d(nn.Module):
         self.to_in = Patcher(
             in_channels=in_channels,
             out_channels=channels * multipliers[0],
-            patch_size=patch_size
+            patch_size=patch_size,
         )
 
         self.downsamples = nn.ModuleList(
@@ -305,7 +289,7 @@ class Encoder1d(nn.Module):
     def forward(
         self, x: Tensor, with_info: bool = False
     ) -> Union[Tensor, Tuple[Tensor, Any]]:
-        x = self.to_in(x) 
+        x = self.to_in(x)
         xs = [x]
 
         for downsample in self.downsamples:
@@ -327,8 +311,8 @@ class Decoder1d(nn.Module):
         multipliers: Sequence[int],
         factors: Sequence[int],
         num_blocks: Sequence[int],
-        patch_size: int = 1, 
-        resnet_groups: int = 8, 
+        patch_size: int = 1,
+        resnet_groups: int = 8,
         in_channels: Optional[int] = None,
     ):
         super().__init__()
@@ -353,7 +337,7 @@ class Decoder1d(nn.Module):
                     out_channels=channels * multipliers[i + 1],
                     factor=factors[i],
                     num_groups=resnet_groups,
-                    num_layers=num_blocks[i]
+                    num_layers=num_blocks[i],
                 )
                 for i in range(num_layers)
             ]
@@ -362,13 +346,11 @@ class Decoder1d(nn.Module):
         self.to_out = Unpatcher(
             in_channels=channels * multipliers[-1],
             out_channels=out_channels,
-            patch_size=patch_size
+            patch_size=patch_size,
         )
 
     def forward(
-        self, 
-        x: Tensor, 
-        with_info: bool = False
+        self, x: Tensor, with_info: bool = False
     ) -> Union[Tensor, Tuple[Tensor, Any]]:
         x = self.to_in(x)
         xs = [x]
@@ -385,7 +367,6 @@ class Decoder1d(nn.Module):
 
 
 class Bottleneck(nn.Module):
-    
     def forward(
         self, x: Tensor, with_info: bool = False
     ) -> Union[Tensor, Tuple[Tensor, Any]]:
@@ -400,14 +381,13 @@ class AutoEncoder1d(nn.Module):
         multipliers: Sequence[int],
         factors: Sequence[int],
         num_blocks: Sequence[int],
-        patch_size: int = 1, 
-        resnet_groups: int = 8, 
+        patch_size: int = 1,
+        resnet_groups: int = 8,
         out_channels: Optional[int] = None,
         bottleneck: Union[Bottleneck, List[Bottleneck]] = [],
         bottleneck_channels: Optional[int] = None,
     ):
         super().__init__()
-        num_layers = len(multipliers) - 1
         self.bottlenecks = nn.ModuleList(to_list(bottleneck))
         out_channels = default(out_channels, in_channels)
 
@@ -438,10 +418,10 @@ class AutoEncoder1d(nn.Module):
     ) -> Union[Tensor, Tuple[Tensor, Any]]:
         z, info_encoder = self.encode(x, with_info=True)
         y, info_decoder = self.decode(z, with_info=True)
-        info = { 
+        info = {
             **dict(latent=z),
-            **prefix_dict('encoder_', info_encoder),
-            **prefix_dict('decoder_', info_decoder)
+            **prefix_dict("encoder_", info_encoder),
+            **prefix_dict("decoder_", info_decoder),
         }
         return (y, info) if with_info else y
 
@@ -452,10 +432,7 @@ class AutoEncoder1d(nn.Module):
 
         for bottleneck in self.bottlenecks:
             x, info_bottleneck = bottleneck(x, with_info=True)
-            info = {
-                **info, 
-                **prefix_dict('bottleneck_', info_bottleneck)
-            }
+            info = {**info, **prefix_dict("bottleneck_", info_bottleneck)}
 
         return (x, info) if with_info else x
 
@@ -491,7 +468,7 @@ class STFT(nn.Module):
             return_complex=True,
         )
 
-        mag = torch.sqrt(torch.clamp((stft.real ** 2) + (stft.imag ** 2), min=1e-8))
+        mag = torch.sqrt(torch.clamp((stft.real**2) + (stft.imag**2), min=1e-8))
         mag = rearrange(mag, "(b c) f l -> b c f l", b=b)
 
         phase = torch.angle(stft)
@@ -563,9 +540,8 @@ class STFTAutoEncoder1d(AutoEncoder1d):
         return (wave, info) if with_info else wave
 
 
-
-""" 
-Bottlenecks 
+"""
+Bottlenecks
 """
 
 
@@ -577,7 +553,7 @@ def gaussian_sample(mean: Tensor, logvar: Tensor) -> Tensor:
 
 
 def kl_loss(mean: Tensor, logvar: Tensor) -> Tensor:
-    losses = mean ** 2 + logvar.exp() - logvar - 1
+    losses = mean**2 + logvar.exp() - logvar - 1
     loss = reduce(losses, "b ... -> 1", "mean").item()
     return loss
 
@@ -602,7 +578,7 @@ class VariationalBottleneck(Bottleneck):
         info = dict(
             variational_kl_loss=kl_loss(mean, logvar) * self.loss_weight,
             variational_mean=mean,
-            variational_logvar=logvar 
+            variational_logvar=logvar,
         )
         return (out, info) if with_info else out
 
