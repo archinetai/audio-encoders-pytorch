@@ -88,6 +88,7 @@ class APipeline(nn.Module):
                 **prefix_dict("discriminator_", info_d),
             }
 
-        self.step()
+        if self.training:
+            self.step()
 
         return (loss_g, loss_d, info) if with_info else (loss_g, loss_d)

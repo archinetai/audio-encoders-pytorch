@@ -536,6 +536,7 @@ class STFTAutoEncoder1d(AutoEncoder1d):
         stft = super().decode(z)
         stft = rearrange(stft, "b (c f i) t -> b (c i) f t", i=2, f=f)
         log_magnitude, phase = stft.chunk(chunks=2, dim=1)
+        log_magnitude = torch.clamp(log_magnitude, -30.0, 20.0)
         magnitude = torch.exp(log_magnitude)
         wave = self.stft.decode(magnitude, phase)
         info = dict(log_magnitude=log_magnitude, phase=phase)

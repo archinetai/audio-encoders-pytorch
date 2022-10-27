@@ -50,8 +50,15 @@ loss_generator, loss_discriminator = discriminator(wave_true, wave_fake)
 ```
 
 
+
 ## Citations
 
+A-Pipeline inspired by
 ```bibtex
-
+@misc{2208.08706,
+Author = {Marco Pasini and Jan Schlüter},
+Title = {Musika! Fast Infinite Waveform Music Generation},
+Year = {2022},
+Eprint = {arXiv:2208.08706},
+}
 ```
