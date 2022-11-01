@@ -1,4 +1,5 @@
 from .modules import (
+    MAE,
     STFT,
     AutoEncoder1d,
     Bottleneck,
@@ -6,7 +7,6 @@ from .modules import (
     Discriminator1d,
     Encoder1d,
     NoiserBottleneck,
-    STFTAutoEncoder1d,
     TanhBottleneck,
     VariationalBottleneck,
 )

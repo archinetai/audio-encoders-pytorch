@@ -3,7 +3,7 @@ from setuptools import find_packages, setup
 setup(
     name="audio-encoders-pytorch",
     packages=find_packages(exclude=[]),
-    version="0.0.7",
+    version="0.0.8",
     license="MIT",
     description="Audio Encoders - PyTorch",
     long_description_content_type="text/markdown",
@@ -15,6 +15,7 @@ setup(
         "torch>=1.6",
         "data-science-types>=0.2",
         "einops>=0.4",
+        "einops-exts>=0.0.3",
     ],
     classifiers=[
         "Development Status :: 4 - Beta",

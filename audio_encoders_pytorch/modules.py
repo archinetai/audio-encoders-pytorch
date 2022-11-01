@@ -1,12 +1,14 @@
+from math import floor
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, reduce
+from einops_exts import rearrange_many
 from torch import Tensor
 
-from .utils import default, exists, prefix_dict, to_list
+from .utils import closest_power_2, default, exists, groupby, prefix_dict, to_list
 
 """
 Convolutional Modules
@@ -443,19 +445,21 @@ class AutoEncoder1d(nn.Module):
 
 
 class STFT(nn.Module):
+    """Helper for torch stft and istft"""
+
     def __init__(
         self,
-        length: int,
         num_fft: int = 1023,
         hop_length: int = 256,
-        window_length: int = 1023,
+        window_length: Optional[int] = None,
+        length: Optional[int] = None,
     ):
         super().__init__()
         self.num_fft = num_fft
-        self.hop_length = hop_length
-        self.window_length = window_length
+        self.hop_length = default(hop_length, floor(num_fft // 4))
+        self.window_length = default(window_length, num_fft)
         self.length = length
-        self.register_buffer("window", torch.hann_window(window_length))
+        self.register_buffer("window", torch.hann_window(self.window_length))
 
     def encode(self, wave: Tensor) -> Tuple[Tensor, Tensor]:
         b = wave.shape[0]
@@ -478,11 +482,12 @@ class STFT(nn.Module):
         return mag, phase
 
     def decode(self, magnitude: Tensor, phase: Tensor) -> Tensor:
-        b = magnitude.shape[0]
+        b, l = magnitude.shape[0], magnitude.shape[-1]  # noqa
         assert magnitude.shape == phase.shape, "magnitude and phase must be same shape"
         real = rearrange(magnitude * torch.cos(phase), "b c f l -> (b c) f l")
         imag = rearrange(magnitude * torch.sin(phase), "b c f l -> (b c) f l")
         stft = torch.stack([real, imag], dim=-1)
+        length = closest_power_2(l * self.hop_length)
 
         wave = torch.istft(
             stft,
@@ -490,57 +495,55 @@ class STFT(nn.Module):
             hop_length=self.hop_length,
             win_length=self.window_length,
             window=self.window,  # type: ignore
-            length=self.length,
+            length=default(self.length, length),
         )
         wave = rearrange(wave, "(b c) t -> b c t", b=b)
         return wave
 
+    def encode1d(
+        self, wave: Tensor, stacked: bool = True
+    ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
+        magnitude, phase = self.encode(wave)
+        magnitude, phase = rearrange_many((magnitude, phase), "b c f l -> b (c f) l")
+        return torch.cat((magnitude, phase), dim=1) if stacked else (magnitude, phase)
 
-class STFTAutoEncoder1d(AutoEncoder1d):
-    def __init__(
-        self,
-        in_channels: int,
-        length: int,
-        num_fft: int = 1023,
-        hop_length: int = 256,
-        window_length: int = 1023,
-        **kwargs,
-    ):
-        self.frequency_channels = num_fft // 2 + 1
+    def decode1d(self, magnitude_and_phase: Tensor) -> Tensor:
+        f = self.num_fft // 2 + 1
+        magnitude, phase = magnitude_and_phase.chunk(chunks=2, dim=1)
+        mag, phase = rearrange_many((magnitude, phase), "b (c f) l -> b c f l", f=f)
+        return self.decode(mag, phase)
 
-        super().__init__(
-            in_channels=in_channels * self.frequency_channels,
-            out_channels=in_channels * self.frequency_channels * 2,
-            patch_size=1,
-            **kwargs,
-        )
 
-        self.stft = STFT(
-            num_fft=num_fft,
-            hop_length=hop_length,
-            window_length=window_length,
-            length=length,
-        )
+class MAE(AutoEncoder1d):
+    def __init__(self, in_channels: int, stft_num_fft: int = 1023, **kwargs):
+        self.frequency_channels = stft_num_fft // 2 + 1
+        stft_kwargs, kwargs = groupby("stft_", kwargs)
+        super().__init__(in_channels=in_channels * self.frequency_channels, **kwargs)
+        self.stft = STFT(num_fft=stft_num_fft, **stft_kwargs)
 
-    def encode(
-        self, wave: Tensor, with_info: bool = False
-    ) -> Union[Tensor, Tuple[Tensor, Any]]:
-        magnitude, phase = self.stft.encode(wave)
-        log_magnitude = rearrange(torch.log(magnitude), "b c f t -> b (c f) t")
-        return super().encode(log_magnitude, with_info)
+    def encode(self, magnitude: Tensor, **kwargs):  # type: ignore
+        log_magnitude = torch.log(magnitude)
+        log_magnitude_flat = rearrange(log_magnitude, "b c f l -> b (c f) l")
+        return super().encode(log_magnitude_flat, **kwargs)
 
     def decode(  # type: ignore
-        self, z: Tensor, with_info: bool = False
-    ) -> Union[Tensor, Tuple[Tensor, Any]]:
+        self, latent: Tensor, with_info: bool = False
+    ) -> Union[Tensor, Tuple[Tensor, Dict]]:
         f = self.frequency_channels
-        stft = super().decode(z)
-        stft = rearrange(stft, "b (c f i) t -> b (c i) f t", i=2, f=f)
-        log_magnitude, phase = stft.chunk(chunks=2, dim=1)
+        log_magnitude_flat, info = super().decode(latent, with_info=True)
+        log_magnitude = rearrange(log_magnitude_flat, "b (c f) l -> b c f l", f=f)
         log_magnitude = torch.clamp(log_magnitude, -30.0, 20.0)
         magnitude = torch.exp(log_magnitude)
-        wave = self.stft.decode(magnitude, phase)
-        info = dict(log_magnitude=log_magnitude, phase=phase)
-        return (wave, info) if with_info else wave
+        info = dict(log_magnitude=log_magnitude, **info)
+        return (magnitude, info) if with_info else magnitude
+
+    def loss(
+        self, wave: Tensor, with_info: bool = False
+    ) -> Union[Tensor, Tuple[Tensor, Dict]]:
+        magnitude, _ = self.stft.encode(wave)
+        magnitude_pred, info = self(magnitude, with_info=True)
+        loss = F.l1_loss(torch.log(magnitude), torch.log(magnitude_pred))
+        return (loss, info) if with_info else loss
 
 
 """
@@ -565,7 +568,7 @@ class VariationalBottleneck(Bottleneck):
     def __init__(self, channels: int, loss_weight: float = 1.0):
         super().__init__()
         self.loss_weight = loss_weight
-        self.to_mean_and_logvar = Conv1d(
+        self.to_mean_and_std = Conv1d(
             in_channels=channels,
             out_channels=channels * 2,
             kernel_size=1,
@@ -574,14 +577,15 @@ class VariationalBottleneck(Bottleneck):
     def forward(
         self, x: Tensor, with_info: bool = False
     ) -> Union[Tensor, Tuple[Tensor, Any]]:
-        mean_and_logvar = self.to_mean_and_logvar(x)
-        mean, logvar = torch.chunk(mean_and_logvar, chunks=2, dim=1)
-        logvar = torch.clamp(logvar, -30.0, 20.0)
-        out = gaussian_sample(mean, logvar)
+        mean_and_std = self.to_mean_and_std(x)
+        mean, std = mean_and_std.chunk(chunks=2, dim=1)
+        std = torch.tanh(std)  # mean in range [-1, 1]
+        mean = torch.tanh(mean) + 1.0  # std in range [0, 2]
+        out = gaussian_sample(mean, std)
         info = dict(
-            variational_kl_loss=kl_loss(mean, logvar) * self.loss_weight,
+            variational_kl_loss=kl_loss(mean, std) * self.loss_weight,
             variational_mean=mean,
-            variational_logvar=logvar,
+            variational_std=std,
         )
         return (out, info) if with_info else out
 
