@@ -15,7 +15,7 @@ class StackedPipeline(nn.Module):
         assert_message = "len(num_stage_steps)+1 must equal len(autoencoders)"
         assert len(autoencoders) == len(num_stage_steps) + 1, assert_message
 
-        self.autoencoders = autoencoders
+        self.autoencoders = nn.ModuleList(autoencoders)
         self.num_stage_steps = num_stage_steps
         self.register_buffer("step_id", torch.tensor(0))
         self.register_buffer("stage_id", torch.tensor(0))
