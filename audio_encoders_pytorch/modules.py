@@ -514,7 +514,7 @@ class STFT(nn.Module):
         return self.decode(mag, phase)
 
 
-class MAE(AutoEncoder1d):
+class MAE1d(AutoEncoder1d):
     def __init__(self, in_channels: int, stft_num_fft: int = 1023, **kwargs):
         self.frequency_channels = stft_num_fft // 2 + 1
         stft_kwargs, kwargs = groupby("stft_", kwargs)
