@@ -2,6 +2,7 @@ from typing import Dict, Sequence, Tuple, Union
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 
 from .modules import AutoEncoder1d
@@ -9,7 +10,10 @@ from .modules import AutoEncoder1d
 
 class StackedPipeline(nn.Module):
     def __init__(
-        self, autoencoders: Sequence[AutoEncoder1d], num_stage_steps: Sequence[int]
+        self,
+        autoencoders: Sequence[AutoEncoder1d],
+        num_stage_steps: Sequence[int],
+        use_inner_loss: bool = False,
     ):
         super().__init__()
         assert_message = "len(num_stage_steps)+1 must equal len(autoencoders)"
@@ -17,6 +21,7 @@ class StackedPipeline(nn.Module):
 
         self.autoencoders = nn.ModuleList(autoencoders)
         self.num_stage_steps = num_stage_steps
+        self.use_inner_loss = use_inner_loss
         self.register_buffer("step_id", torch.tensor(0))
         self.register_buffer("stage_id", torch.tensor(0))
 
@@ -71,13 +76,18 @@ class StackedPipeline(nn.Module):
     def forward(
         self, x: Tensor, with_info: bool = False
     ) -> Union[Tensor, Tuple[Tensor, Dict]]:
+        if self.training:
+            self.step()
 
         z, info_encoders = self.encode(x, with_info=True)
         y, info_decoders = self.decode(z, with_info=True)
         info = dict(**info_encoders, **info_decoders, latent=z)
-        loss = self.loss_fn(x, y)
 
-        if self.training:
-            self.step()
+        if self.use_inner_loss and self.stage_id > 0:  # type: ignore
+            inner_input = info["encoders"][-1]["xs"][0]
+            inner_output = info["decoders"][0]["xs"][-1]
+            loss = F.mse_loss(inner_input, inner_output)
+        else:
+            loss = self.loss_fn(x, y)
 
         return (loss, info) if with_info else loss

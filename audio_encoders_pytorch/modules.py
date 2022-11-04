@@ -293,8 +293,9 @@ class Encoder1d(nn.Module):
     def forward(
         self, x: Tensor, with_info: bool = False
     ) -> Union[Tensor, Tuple[Tensor, Any]]:
-        x = self.to_in(x)
         xs = [x]
+        x = self.to_in(x)
+        xs += [x]
 
         for downsample in self.downsamples:
             x = downsample(x)
@@ -356,8 +357,9 @@ class Decoder1d(nn.Module):
     def forward(
         self, x: Tensor, with_info: bool = False
     ) -> Union[Tensor, Tuple[Tensor, Any]]:
-        x = self.to_in(x)
         xs = [x]
+        x = self.to_in(x)
+        xs += [x]
 
         for upsample in self.upsamples:
             x = upsample(x)
