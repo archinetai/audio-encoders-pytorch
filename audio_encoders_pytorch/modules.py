@@ -581,8 +581,8 @@ class VariationalBottleneck(Bottleneck):
     ) -> Union[Tensor, Tuple[Tensor, Any]]:
         mean_and_std = self.to_mean_and_std(x)
         mean, std = mean_and_std.chunk(chunks=2, dim=1)
-        std = torch.tanh(std)  # mean in range [-1, 1]
-        mean = torch.tanh(mean) + 1.0  # std in range [0, 2]
+        mean = torch.tanh(mean)  # mean in range [-1, 1]
+        std = torch.tanh(std) + 1.0  # std in range [0, 2]
         out = gaussian_sample(mean, std)
         info = dict(
             variational_kl_loss=kl_loss(mean, std) * self.loss_weight,
