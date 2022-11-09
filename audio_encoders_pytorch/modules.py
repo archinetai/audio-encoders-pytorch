@@ -615,6 +615,25 @@ class NoiserBottleneck(Bottleneck):
         return (x, info) if with_info else x
 
 
+class BitcodesBottleneck(Bottleneck):
+    def __init__(self, channels: int, num_bits: int, temperature: float = 1.0):
+        super().__init__()
+        from bitcodes_pytorch import Bitcodes
+
+        self.bitcodes = Bitcodes(
+            features=channels, num_bits=num_bits, temperature=temperature
+        )
+
+    def forward(
+        self, x: Tensor, with_info: bool = False
+    ) -> Union[Tensor, Tuple[Tensor, Any]]:
+        x = rearrange(x, "b c t -> b t c")
+        x, bits = self.bitcodes(x)
+        x = rearrange(x, "b t c -> b c t")
+        info: Dict = dict(bits=bits)
+        return (x, info) if with_info else x
+
+
 """
 Discriminators
 """
