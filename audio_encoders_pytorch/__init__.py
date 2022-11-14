@@ -11,3 +11,4 @@ from .modules import (
     TanhBottleneck,
     VariationalBottleneck,
 )
+from .pretrained import AudioEncoders

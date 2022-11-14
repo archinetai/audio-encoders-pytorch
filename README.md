@@ -49,16 +49,24 @@ loss_generator, loss_discriminator = discriminator(wave_true, wave_fake)
 # tensor(0.613949, grad_fn=<MeanBackward0>) tensor(0.097330, grad_fn=<MeanBackward0>)
 ```
 
+## Pretrained Audio Encoders
+The usage of pretrained models requires Huggingface transformers (`pip install transformers`).
 
+### `autoencoder1d-AT-v1`
+```py
+from audio_encoders_pytorch import AudioEncoders
 
-## Citations
+autoencoder = AudioEncoders.from_pretrained('autoencoder1d-AT-v1')
 
-A-Pipeline inspired by
-```bibtex
-@misc{2208.08706,
-Author = {Marco Pasini and Jan Schlüter},
-Title = {Musika! Fast Infinite Waveform Music Generation},
-Year = {2022},
-Eprint = {arXiv:2208.08706},
-}
+x = torch.randn(1, 2, 2**18)    # [1, 2, 262144]
+z = autoencoder.encode(x)       # [1, 32, 8192]
+y = autoencoder.decode(z)       # [1, 2, 262144]
 ```
+
+| Info  | Value |
+| ------------- | ------------- |
+| Input type | Audio (stereo @ 48kHz) |
+| Number of parameters  | 20.7M  |
+| Compression Factor | 2x |
+| Downsampling Factor | 32x |
+| Bottleneck Type | Tanh |
