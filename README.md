@@ -63,10 +63,11 @@ z = autoencoder.encode(x)       # [1, 32, 8192]
 y = autoencoder.decode(z)       # [1, 2, 262144]
 ```
 
-| Info  | Value |
+| Info  | |
 | ------------- | ------------- |
 | Input type | Audio (stereo @ 48kHz) |
 | Number of parameters  | 20.7M  |
 | Compression Factor | 2x |
 | Downsampling Factor | 32x |
 | Bottleneck Type | Tanh |
+| Known Limitations | Slight blurriness in high frequency spectrogram reconstruction |
