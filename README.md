@@ -52,7 +52,7 @@ loss_generator, loss_discriminator = discriminator(wave_true, wave_fake)
 ## Pretrained Audio Encoders
 The usage of pretrained models requires Huggingface transformers (`pip install transformers`).
 
-### `autoencoder1d-AT-v1`
+### [`autoencoder1d-AT-v1`](https://huggingface.co/archinetai/autoencoder1d-AT-v1/tree/main)
 ```py
 from audio_encoders_pytorch import AudioEncoders
 
