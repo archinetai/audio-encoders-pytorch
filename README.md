@@ -1,6 +1,6 @@
 ## Audio Encoders - PyTorch
 
-A collection of audio autoencoders, in PyTorch.
+A collection of audio autoencoders, in PyTorch. Pretrained models can be found at [`archisound`](https://github.com/archinetai/archisound).
 
 ## Install
 
@@ -48,26 +48,3 @@ wave_fake = torch.randn(1, 2, 2**18)
 loss_generator, loss_discriminator = discriminator(wave_true, wave_fake)
 # tensor(0.613949, grad_fn=<MeanBackward0>) tensor(0.097330, grad_fn=<MeanBackward0>)
 ```
-
-## Pretrained Audio Encoders
-The usage of pretrained models requires Huggingface transformers (`pip install transformers`).
-
-### [`autoencoder1d-AT-v1`](https://huggingface.co/archinetai/autoencoder1d-AT-v1/tree/main)
-```py
-from audio_encoders_pytorch import AudioEncoders
-
-autoencoder = AudioEncoders.from_pretrained('autoencoder1d-AT-v1')
-
-x = torch.randn(1, 2, 2**18)    # [1, 2, 262144]
-z = autoencoder.encode(x)       # [1, 32, 8192]
-y = autoencoder.decode(z)       # [1, 2, 262144]
-```
-
-| Info  | |
-| ------------- | ------------- |
-| Input type | Audio (stereo @ 48kHz) |
-| Number of parameters  | 20.7M  |
-| Compression Factor | 2x |
-| Downsampling Factor | 32x |
-| Bottleneck Type | Tanh |
-| Known Limitations | Slight blurriness in high frequency spectrogram reconstruction |
