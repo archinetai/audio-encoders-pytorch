@@ -543,6 +543,7 @@ class ME1d(Encoder1d):
         stft_kwargs, kwargs = groupby("stft_", kwargs)
         super().__init__(in_channels=in_channels * self.frequency_channels, **kwargs)
         self.stft = STFT(num_fft=stft_num_fft, **stft_kwargs)
+        self.downsample_factor *= self.stft.hop_length
 
     def forward(self, x: Tensor, **kwargs) -> Union[Tensor, Tuple[Tensor, Any]]:  # type: ignore # noqa
         magnitude, _ = self.stft.encode(x)
