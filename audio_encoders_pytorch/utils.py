@@ -1,3 +1,4 @@
+from functools import reduce
 from inspect import isfunction
 from math import ceil, floor, log2
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, TypeVar, Union
@@ -30,6 +31,10 @@ def closest_power_2(x: float) -> int:
     distance_fn = lambda z: abs(x - 2**z)  # noqa
     exponent_closest = min((floor(exponent), ceil(exponent)), key=distance_fn)
     return 2 ** int(exponent_closest)
+
+
+def prod(vals: Sequence[int]) -> int:
+    return reduce(lambda x, y: x * y, vals)
 
 
 """

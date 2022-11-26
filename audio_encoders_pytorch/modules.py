@@ -8,7 +8,7 @@ from einops import rearrange, reduce
 from einops_exts import rearrange_many
 from torch import Tensor
 
-from .utils import closest_power_2, default, exists, groupby, prefix_dict, to_list
+from .utils import closest_power_2, default, exists, groupby, prefix_dict, prod, to_list
 
 """
 Convolutional Modules
@@ -244,6 +244,13 @@ Encoders / Decoders
 """
 
 
+class Bottleneck(nn.Module):
+    def forward(
+        self, x: Tensor, with_info: bool = False
+    ) -> Union[Tensor, Tuple[Tensor, Any]]:
+        raise NotImplementedError()
+
+
 class Encoder1d(nn.Module):
     def __init__(
         self,
@@ -255,11 +262,16 @@ class Encoder1d(nn.Module):
         patch_size: int = 1,
         resnet_groups: int = 8,
         out_channels: Optional[int] = None,
+        bottleneck: Union[Bottleneck, List[Bottleneck]] = [],
     ):
         super().__init__()
-        num_layers = len(multipliers) - 1
-        self.num_layers = num_layers
-        assert len(factors) == num_layers and len(num_blocks) == num_layers
+        self.bottlenecks = nn.ModuleList(to_list(bottleneck))
+        self.num_layers = len(multipliers) - 1
+        self.downsample_factor = patch_size * prod(factors)
+        self.out_channels = (
+            out_channels if exists(out_channels) else channels * multipliers[-1]
+        )
+        assert len(factors) == self.num_layers and len(num_blocks) == self.num_layers
 
         self.to_in = Patcher(
             in_channels=in_channels,
@@ -276,7 +288,7 @@ class Encoder1d(nn.Module):
                     num_groups=resnet_groups,
                     num_layers=num_blocks[i],
                 )
-                for i in range(num_layers)
+                for i in range(self.num_layers)
             ]
         )
 
@@ -303,8 +315,12 @@ class Encoder1d(nn.Module):
 
         x = self.to_out(x)
         xs += [x]
-
         info = dict(xs=xs)
+
+        for bottleneck in self.bottlenecks:
+            x, info_bottleneck = bottleneck(x, with_info=True)
+            info = {**info, **prefix_dict("bottleneck_", info_bottleneck)}
+
         return (x, info) if with_info else x
 
 
@@ -372,13 +388,6 @@ class Decoder1d(nn.Module):
         return (x, info) if with_info else x
 
 
-class Bottleneck(nn.Module):
-    def forward(
-        self, x: Tensor, with_info: bool = False
-    ) -> Union[Tensor, Tuple[Tensor, Any]]:
-        raise NotImplementedError()
-
-
 class AutoEncoder1d(nn.Module):
     def __init__(
         self,
@@ -394,7 +403,6 @@ class AutoEncoder1d(nn.Module):
         bottleneck_channels: Optional[int] = None,
     ):
         super().__init__()
-        self.bottlenecks = nn.ModuleList(to_list(bottleneck))
         out_channels = default(out_channels, in_channels)
 
         self.encoder = Encoder1d(
@@ -406,6 +414,7 @@ class AutoEncoder1d(nn.Module):
             num_blocks=num_blocks,
             patch_size=patch_size,
             resnet_groups=resnet_groups,
+            bottleneck=bottleneck,
         )
 
         self.decoder = Decoder1d(
@@ -434,13 +443,7 @@ class AutoEncoder1d(nn.Module):
     def encode(
         self, x: Tensor, with_info: bool = False
     ) -> Union[Tensor, Tuple[Tensor, Any]]:
-        x, info = self.encoder(x, with_info=True)
-
-        for bottleneck in self.bottlenecks:
-            x, info_bottleneck = bottleneck(x, with_info=True)
-            info = {**info, **prefix_dict("bottleneck_", info_bottleneck)}
-
-        return (x, info) if with_info else x
+        return self.encoder(x, with_info=with_info)
 
     def decode(self, x: Tensor, with_info: bool = False) -> Tensor:
         return self.decoder(x, with_info=with_info)
@@ -455,6 +458,7 @@ class STFT(nn.Module):
         hop_length: int = 256,
         window_length: Optional[int] = None,
         length: Optional[int] = None,
+        use_complex: bool = False,
     ):
         super().__init__()
         self.num_fft = num_fft
@@ -462,6 +466,7 @@ class STFT(nn.Module):
         self.window_length = default(window_length, num_fft)
         self.length = length
         self.register_buffer("window", torch.hann_window(self.window_length))
+        self.use_complex = use_complex
 
     def encode(self, wave: Tensor) -> Tuple[Tensor, Tensor]:
         b = wave.shape[0]
@@ -474,22 +479,32 @@ class STFT(nn.Module):
             win_length=self.window_length,
             window=self.window,  # type: ignore
             return_complex=True,
+            normalized=True,
         )
 
-        mag = torch.sqrt(torch.clamp((stft.real**2) + (stft.imag**2), min=1e-8))
-        mag = rearrange(mag, "(b c) f l -> b c f l", b=b)
+        if self.use_complex:
+            # Returns real and imaginary
+            stft_a, stft_b = stft.real, stft.imag
+        else:
+            # Returns magnitude and phase matrices
+            magnitude, phase = torch.abs(stft), torch.angle(stft)
+            stft_a, stft_b = magnitude, phase
 
-        phase = torch.angle(stft)
-        phase = rearrange(phase, "(b c) f l -> b c f l", b=b)
-        return mag, phase
+        return rearrange_many((stft_a, stft_b), "(b c) f l -> b c f l", b=b)
 
-    def decode(self, magnitude: Tensor, phase: Tensor) -> Tensor:
-        b, l = magnitude.shape[0], magnitude.shape[-1]  # noqa
-        assert magnitude.shape == phase.shape, "magnitude and phase must be same shape"
-        real = rearrange(magnitude * torch.cos(phase), "b c f l -> (b c) f l")
-        imag = rearrange(magnitude * torch.sin(phase), "b c f l -> (b c) f l")
-        stft = torch.stack([real, imag], dim=-1)
+    def decode(self, stft_a: Tensor, stft_b: Tensor) -> Tensor:
+        b, l = stft_a.shape[0], stft_a.shape[-1]  # noqa
         length = closest_power_2(l * self.hop_length)
+
+        stft_a, stft_b = rearrange_many((stft_a, stft_b), "b c f l -> (b c) f l")
+
+        if self.use_complex:
+            real, imag = stft_a, stft_b
+        else:
+            magnitude, phase = stft_a, stft_b
+            real, imag = magnitude * torch.cos(phase), magnitude * torch.sin(phase)
+
+        stft = torch.stack([real, imag], dim=-1)
 
         wave = torch.istft(
             stft,
@@ -498,25 +513,47 @@ class STFT(nn.Module):
             win_length=self.window_length,
             window=self.window,  # type: ignore
             length=default(self.length, length),
+            normalized=True,
         )
-        wave = rearrange(wave, "(b c) t -> b c t", b=b)
-        return wave
+
+        return rearrange(wave, "(b c) t -> b c t", b=b)
 
     def encode1d(
         self, wave: Tensor, stacked: bool = True
     ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
-        magnitude, phase = self.encode(wave)
-        magnitude, phase = rearrange_many((magnitude, phase), "b c f l -> b (c f) l")
-        return torch.cat((magnitude, phase), dim=1) if stacked else (magnitude, phase)
+        stft_a, stft_b = self.encode(wave)
+        stft_a, stft_b = rearrange_many((stft_a, stft_b), "b c f l -> b (c f) l")
+        return torch.cat((stft_a, stft_b), dim=1) if stacked else (stft_a, stft_b)
 
-    def decode1d(self, magnitude_and_phase: Tensor) -> Tensor:
+    def decode1d(self, stft_pair: Tensor) -> Tensor:
         f = self.num_fft // 2 + 1
-        magnitude, phase = magnitude_and_phase.chunk(chunks=2, dim=1)
-        mag, phase = rearrange_many((magnitude, phase), "b (c f) l -> b c f l", f=f)
-        return self.decode(mag, phase)
+        stft_a, stft_b = stft_pair.chunk(chunks=2, dim=1)
+        stft_a, stft_b = rearrange_many((stft_a, stft_b), "b (c f) l -> b c f l", f=f)
+        return self.decode(stft_a, stft_b)
+
+
+class ME1d(Encoder1d):
+    """Magnitude Encoder"""
+
+    def __init__(
+        self, in_channels: int, stft_num_fft: int, use_log: bool = False, **kwargs
+    ):
+        self.use_log = use_log
+        self.frequency_channels = stft_num_fft // 2 + 1
+        stft_kwargs, kwargs = groupby("stft_", kwargs)
+        super().__init__(in_channels=in_channels * self.frequency_channels, **kwargs)
+        self.stft = STFT(num_fft=stft_num_fft, **stft_kwargs)
+
+    def forward(self, x: Tensor, **kwargs) -> Union[Tensor, Tuple[Tensor, Any]]:  # type: ignore # noqa
+        magnitude, _ = self.stft.encode(x)
+        magnitude = rearrange(magnitude, "b c f l -> b (c f) l")
+        magnitude = torch.log(magnitude) if self.use_log else magnitude
+        return super().forward(magnitude, **kwargs)
 
 
 class MAE1d(AutoEncoder1d):
+    """Magnitude Auto Encoder"""
+
     def __init__(self, in_channels: int, stft_num_fft: int = 1023, **kwargs):
         self.frequency_channels = stft_num_fft // 2 + 1
         stft_kwargs, kwargs = groupby("stft_", kwargs)

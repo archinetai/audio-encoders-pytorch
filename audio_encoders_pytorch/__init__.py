@@ -7,6 +7,7 @@ from .modules import (
     Discriminator1d,
     Encoder1d,
     MAE1d,
+    ME1d,
     NoiserBottleneck,
     TanhBottleneck,
     VariationalBottleneck,
