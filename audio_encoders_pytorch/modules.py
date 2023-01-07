@@ -4,9 +4,10 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import rearrange, reduce
+from einops import pack, rearrange, reduce, unpack
 from einops_exts import rearrange_many
 from torch import Tensor
+from torchaudio import transforms
 
 from .utils import closest_power_2, default, exists, groupby, prefix_dict, prod, to_list
 
@@ -584,6 +585,71 @@ class MAE1d(AutoEncoder1d):
         magnitude_pred, info = self(magnitude, with_info=True)
         loss = F.l1_loss(torch.log(magnitude), torch.log(magnitude_pred))
         return (loss, info) if with_info else loss
+
+
+class MelSpectrogram(nn.Module):
+    def __init__(
+        self,
+        n_fft: int = 1024,
+        hop_length: int = 256,
+        win_length: int = 1024,
+        sample_rate: int = 48000,
+        n_mel_channels: int = 80,
+        center: bool = False,
+        normalize: bool = False,
+        normalize_log: bool = False,
+    ):
+        super().__init__()
+        self.padding = (n_fft - hop_length) // 2
+        self.normalize = normalize
+        self.normalize_log = normalize_log
+        self.hop_length = hop_length
+
+        self.to_spectrogram = transforms.Spectrogram(
+            n_fft=n_fft,
+            hop_length=hop_length,
+            win_length=win_length,
+            center=center,
+            power=None,
+        )
+
+        self.to_mel_scale = transforms.MelScale(
+            n_mels=n_mel_channels, n_stft=n_fft // 2 + 1, sample_rate=sample_rate
+        )
+
+    def forward(self, waveform: Tensor) -> Tensor:
+        # Pack non-time dimension
+        waveform, ps = pack([waveform], "* t")
+        # Pad waveform
+        waveform = F.pad(waveform, [self.padding] * 2, mode="reflect")
+        # Compute STFT
+        spectrogram = self.to_spectrogram(waveform)
+        # Compute magnitude
+        spectrogram = torch.abs(spectrogram)
+        # Convert to mel scale
+        mel_spectrogram = self.to_mel_scale(spectrogram)
+        # Normalize
+        if self.normalize:
+            mel_spectrogram = mel_spectrogram / torch.max(mel_spectrogram)
+            mel_spectrogram = 2 * torch.pow(mel_spectrogram, 0.25) - 1
+        if self.normalize_log:
+            mel_spectrogram = torch.log(torch.clamp(mel_spectrogram, min=1e-5))
+        # Unpack non-spectrogram dimension
+        return unpack(mel_spectrogram, ps, "* f l")[0]
+
+
+class MelAE1d(Encoder1d):
+    """Magnitude Encoder"""
+
+    def __init__(self, in_channels: int, mel_channels: int, **kwargs):
+        mel_kwargs, kwargs = groupby("mel_", kwargs)
+        super().__init__(in_channels=in_channels * mel_channels, **kwargs)
+        self.mel = MelSpectrogram(n_mel_channels=mel_channels, **mel_kwargs)
+        self.downsample_factor *= self.mel.hop_length
+
+    def forward(self, x: Tensor, **kwargs) -> Union[Tensor, Tuple[Tensor, Any]]:  # type: ignore # noqa
+        mel = rearrange(self.mel(x), "b c f l -> b (c f) l")
+        return super().forward(mel, **kwargs)
 
 
 """
