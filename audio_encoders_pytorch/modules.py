@@ -638,7 +638,7 @@ class MelSpectrogram(nn.Module):
         return unpack(mel_spectrogram, ps, "* f l")[0]
 
 
-class MelAE1d(Encoder1d):
+class MelE1d(Encoder1d):
     """Magnitude Encoder"""
 
     def __init__(self, in_channels: int, mel_channels: int, **kwargs):

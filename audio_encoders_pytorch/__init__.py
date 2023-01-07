@@ -8,6 +8,7 @@ from .modules import (
     Encoder1d,
     MAE1d,
     ME1d,
+    MelE1d,
     NoiserBottleneck,
     TanhBottleneck,
     VariationalBottleneck,
